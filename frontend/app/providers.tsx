@@ -7,8 +7,7 @@ import { sepolia } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "react-hot-toast";
 
-const RPC_URL =
-  process.env.NEXT_PUBLIC_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? "";
 
 // WalletConnect Cloud project id (free): https://cloud.reown.com
 // Required for the WalletConnect/mobile options in the modal. getDefaultConfig

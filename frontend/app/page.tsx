@@ -15,9 +15,8 @@ const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? "";
 
 // Dedicated read-only RPC so reads never depend on the wallet's (possibly
 // broken/404ing) network RPC. The wallet is used only to sign writes.
-const RPC_URL =
-  process.env.NEXT_PUBLIC_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
-const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 11155111);
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? "";
+const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 0);
 const readProvider = new ethers.JsonRpcProvider(RPC_URL, CHAIN_ID, {
   staticNetwork: true,
 });
