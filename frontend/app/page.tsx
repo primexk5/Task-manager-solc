@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import toast from "react-hot-toast";
 import { ethers } from "ethers";
+import { useAccount } from "wagmi";
 import TaskManagerABI from "./abi.json";
 import { Task } from "../types";
 import { Header } from "../components/Header";
@@ -65,6 +66,7 @@ export default function Home() {
   // Wallet connection is handled by RainbowKit/wagmi; we adapt the connected
   // wallet into an ethers signer so the contract calls below stay unchanged.
   const signer = useEthersSigner();
+  const { address: walletAddress } = useAccount();
 
   const contract = useMemo(() => {
     if (signer && ethers.isAddress(CONTRACT_ADDRESS)) {
@@ -77,12 +79,12 @@ export default function Home() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Fetch tasks through the dedicated read RPC (independent of the wallet).
-  const fetchTasks = useCallback(async () => {
-    if (!readContract) return;
+  // Fetch only the tasks that belong to the connected wallet address.
+  const fetchTasks = useCallback(async (owner: string) => {
+    if (!readContract || !ethers.isAddress(owner)) return;
     try {
       setLoading(true);
-      const data = await readContract.getAllTasks();
+      const data = await readContract.getAllTasks(owner);
       const formattedTasks = data.map((t: { id: bigint; title: string; completed: boolean }) => ({
         id: Number(t.id),
         title: t.title,
@@ -96,24 +98,28 @@ export default function Home() {
     }
   }, []);
 
-  // Load tasks on mount via the read RPC (no wallet needed for reading). The
-  // setTimeout defers the state update out of the effect body to satisfy the
-  // React Compiler's "no synchronous setState in effect" rule.
+  // Re-fetch (or clear) whenever the connected wallet changes.
   useEffect(() => {
-    const timer = setTimeout(() => fetchTasks(), 0);
+    const timer = setTimeout(() => {
+      if (!walletAddress) {
+        setTasks([]);
+      } else {
+        fetchTasks(walletAddress);
+      }
+    }, 0);
     return () => clearTimeout(timer);
-  }, [fetchTasks]);
+  }, [walletAddress, fetchTasks]);
 
   // Create Task
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!contract || !newTaskTitle) return;
+    if (!contract || !newTaskTitle || !walletAddress) return;
     try {
       setLoading(true);
       const tx = await contract.createTask(newTaskTitle);
       await waitForTx(tx.hash);
       setNewTaskTitle("");
-      await fetchTasks();
+      await fetchTasks(walletAddress);
     } catch (err) {
       toast.error(getErrorMessage(err, "Failed to create task."));
     } finally {
@@ -123,12 +129,12 @@ export default function Home() {
 
   // Mark Completed
   const handleMarkCompleted = async (id: number) => {
-    if (!contract) return;
+    if (!contract || !walletAddress) return;
     try {
       setLoading(true);
       const tx = await contract.markCompleted(id);
       await waitForTx(tx.hash);
-      await fetchTasks();
+      await fetchTasks(walletAddress);
     } catch (err) {
       toast.error(getErrorMessage(err, "Failed to mark task as completed."));
     } finally {
@@ -138,14 +144,14 @@ export default function Home() {
 
   // Update Task
   const handleUpdateTask = async (id: number) => {
-    if (!contract) return;
+    if (!contract || !walletAddress) return;
     const newTitle = prompt("Enter new title for the task:");
     if (!newTitle) return;
     try {
       setLoading(true);
       const tx = await contract.updateTask(id, newTitle);
       await waitForTx(tx.hash);
-      await fetchTasks();
+      await fetchTasks(walletAddress);
     } catch (err) {
       toast.error(getErrorMessage(err, "Failed to update task."));
     } finally {
@@ -153,15 +159,16 @@ export default function Home() {
     }
   };
 
-  // Delete Task
+  // Delete Task — requires a signed on-chain transaction; the contract enforces
+  // that only the task owner (msg.sender) can delete their own tasks.
   const handleDeleteTask = async (id: number) => {
-    if (!contract) return;
+    if (!contract || !walletAddress) return;
     if (!confirm("Are you sure you want to delete this task?")) return;
     try {
       setLoading(true);
       const tx = await contract.deleteTask(id);
       await waitForTx(tx.hash);
-      await fetchTasks();
+      await fetchTasks(walletAddress);
     } catch (err) {
       toast.error(getErrorMessage(err, "Failed to delete task."));
     } finally {

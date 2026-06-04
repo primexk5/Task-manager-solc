@@ -8,56 +8,67 @@ contract TaskManager {
         bool completed;
     }
 
-    uint256 public nextTaskId;
-    mapping(uint256 => Task) public tasks;
-    mapping(uint256 => bool) private taskExists;
+    // Tasks are stored per owner address — no cross-wallet visibility.
+    mapping(address => mapping(uint256 => Task)) private ownerTasks;
+    mapping(address => mapping(uint256 => bool)) private taskExists;
+    mapping(address => uint256) private nextTaskId;
 
-    event TaskCreated(uint256 indexed id, string title);
-    event TaskUpdated(uint256 indexed id, string title, bool completed);
-    event TaskDeleted(uint256 indexed id);
+    event TaskCreated(address indexed owner, uint256 indexed id, string title);
+    event TaskUpdated(address indexed owner, uint256 indexed id, string title, bool completed);
+    event TaskDeleted(address indexed owner, uint256 indexed id);
 
     modifier taskMustExist(uint256 _id) {
-        require(taskExists[_id], "Task does not exist");
+        require(taskExists[msg.sender][_id], "Task does not exist");
         _;
     }
 
     function createTask(string memory _title) public returns (uint256) {
         require(bytes(_title).length > 0, "Title cannot be empty");
 
-        uint256 taskId = nextTaskId;
-        tasks[taskId] = Task(taskId, _title, false);
-        taskExists[taskId] = true;
-        nextTaskId++;
+        uint256 taskId = nextTaskId[msg.sender];
+        ownerTasks[msg.sender][taskId] = Task(taskId, _title, false);
+        taskExists[msg.sender][taskId] = true;
+        nextTaskId[msg.sender]++;
 
-        emit TaskCreated(taskId, _title);
+        emit TaskCreated(msg.sender, taskId, _title);
         return taskId;
     }
 
     function getTask(uint256 _id) public view taskMustExist(_id) returns (Task memory) {
-        return tasks[_id];
+        return ownerTasks[msg.sender][_id];
     }
 
     function updateTask(uint256 _id, string memory _title) public taskMustExist(_id) {
         require(bytes(_title).length > 0, "Title cannot be empty");
-        tasks[_id].title = _title;
-        emit TaskUpdated(_id, _title, tasks[_id].completed);
+        ownerTasks[msg.sender][_id].title = _title;
+        emit TaskUpdated(msg.sender, _id, _title, ownerTasks[msg.sender][_id].completed);
     }
 
     function markCompleted(uint256 _id) public taskMustExist(_id) {
-        tasks[_id].completed = true;
-        emit TaskUpdated(_id, tasks[_id].title, true);
+        ownerTasks[msg.sender][_id].completed = true;
+        emit TaskUpdated(msg.sender, _id, ownerTasks[msg.sender][_id].title, true);
     }
 
+    // Requires a signed transaction from the task owner — anyone else calling
+    // this will hit the taskMustExist check (keyed to msg.sender) and revert.
     function deleteTask(uint256 _id) public taskMustExist(_id) {
-        taskExists[_id] = false;
-        emit TaskDeleted(_id);
+        taskExists[msg.sender][_id] = false;
+        delete ownerTasks[msg.sender][_id];
+        emit TaskDeleted(msg.sender, _id);
     }
 
-    function getAllTasks() public view returns (Task[] memory) {
-        Task[] memory result = new Task[](nextTaskId);
-        for (uint256 i = 0; i < nextTaskId; i++) {
-            if (taskExists[i]) {
-                result[i] = tasks[i];
+    // Takes an owner address so the read-only RPC can call this without a wallet.
+    function getAllTasks(address _owner) public view returns (Task[] memory) {
+        uint256 total = nextTaskId[_owner];
+        uint256 count = 0;
+        for (uint256 i = 0; i < total; i++) {
+            if (taskExists[_owner][i]) count++;
+        }
+        Task[] memory result = new Task[](count);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < total; i++) {
+            if (taskExists[_owner][i]) {
+                result[idx++] = ownerTasks[_owner][i];
             }
         }
         return result;
